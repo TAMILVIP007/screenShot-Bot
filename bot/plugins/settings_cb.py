@@ -12,7 +12,7 @@ async def settings_cb(c, m):
     except: 
         _, typ = m.data.split('+')
     chat_id = m.from_user.id
-    
+
     if typ == 'af':
         as_file = await c.db.is_as_file(chat_id)
         await c.db.update_as_file(chat_id, not as_file)
@@ -25,15 +25,15 @@ async def settings_cb(c, m):
             alert_text = 'Successfully removed watermark text.'
         else:
             alert_text = 'Use /set_watermark to add new watermark text.'
-    
+
     elif typ == 'sv':
         sample_duration = await c.db.get_sample_duration(chat_id)
-        if sample_duration+30 >=180:
+        if sample_duration >= 150:
             sample_duration = 0
         sample_duration += 30
         await c.db.update_sample_duration(chat_id, sample_duration)
         alert_text = f'Sample video duration changed to {sample_duration}s'
-    
+
     elif typ == 'wc':
         watermark_color_code = await c.db.get_watermark_color(chat_id)
         if watermark_color_code+1 == len(Config.COLORS):
@@ -41,16 +41,13 @@ async def settings_cb(c, m):
         watermark_color_code += 1
         await c.db.update_watermark_color(chat_id, watermark_color_code)
         alert_text = f'Successfully changed watermark text color to {Config.COLORS[watermark_color_code]}'
-    
+
     elif typ == 'sm':
         screenshot_mode = await c.db.get_screenshot_mode(chat_id)
-        if screenshot_mode == 0:
-            screenshot_mode = 1
-        else:
-            screenshot_mode = 0
+        screenshot_mode = 1 if screenshot_mode == 0 else 0
         await c.db.update_screenshot_mode(chat_id, screenshot_mode)
         alert_text = 'Successfully changed screenshot generation mode'
-    
+
     elif typ == 'fs':
         font_size = await c.db.get_font_size(chat_id)
         if font_size == len(Config.FONT_SIZES)-1:
@@ -58,7 +55,7 @@ async def settings_cb(c, m):
         font_size += 1
         await c.db.update_font_size(chat_id, font_size)
         alert_text = f'Successfully changed font size to {Config.FONT_SIZES_NAME[font_size]}'
-    
+
     await m.answer(alert_text, show_alert=True)
 
     await display_settings(c, m, cb=True)

@@ -90,29 +90,26 @@ async def get_duration(input_file_link):
     out = out.decode().strip()
     if not out:
         return err.decode()
-    duration = round(float(out))
-    if duration:
+    if duration := round(float(out)):
         return duration
     return 'No duration!'
 
 
 async def fix_subtitle_codec(file_link):
-    fixable_codecs = ['mov_text']
-    
     ffmpeg_dur_cmd = f"ffprobe -v error -select_streams s -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1  {shlex.quote(file_link)}"
-    
+
     out, err = await run_subprocess(ffmpeg_dur_cmd)
     out = out.decode().strip()
     if not out:
         return ''
-    
-    fix_cmd = ''
+
     codecs = [i.strip() for i in out.split('\n')]
-    for indx, codec in enumerate(codecs):
-        if any(fixable_codec in codec for fixable_codec in fixable_codecs):
-            fix_cmd += f'-c:s:{indx} srt '
-    
-    return fix_cmd
+    fixable_codecs = ['mov_text']
+    return ''.join(
+        f'-c:s:{indx} srt '
+        for indx, codec in enumerate(codecs)
+        if any(fixable_codec in codec for fixable_codec in fixable_codecs)
+    )
     
 
 async def edit_message_text(m, **kwargs):
@@ -127,7 +124,7 @@ async def edit_message_text(m, **kwargs):
 
 async def display_settings(c, m, cb=False):
     chat_id = m.from_user.id if cb else m.chat.id
-    
+
     as_file = await c.db.is_as_file(chat_id)
     as_round = await c.db.is_as_round(chat_id)
     watermark_text = await c.db.get_watermark_text(chat_id)
@@ -135,7 +132,7 @@ async def display_settings(c, m, cb=False):
     watermark_color_code = await c.db.get_watermark_color(chat_id)
     screenshot_mode = await c.db.get_screenshot_mode(chat_id)
     font_size = await c.db.get_font_size(chat_id)
-    
+
     sv_btn = [
         InlineKeyboardButton("Sample Video Duration", 'rj'),
         InlineKeyboardButton(f"{sample_duration}s", 'set+sv')
@@ -151,25 +148,25 @@ async def display_settings(c, m, cb=False):
     as_file_btn = [InlineKeyboardButton("Upload Mode", 'rj')]
     wm_btn = [InlineKeyboardButton("Watermark", 'rj')]
     sm_btn = [InlineKeyboardButton("Screenshot Generation Mode", 'rj')]
-    
-    
+
+
     if as_file:
         as_file_btn.append(InlineKeyboardButton("📁 Uploading as Document.", 'set+af'))
     else:
         as_file_btn.append(InlineKeyboardButton("🖼️ Uploading as Image.", 'set+af'))
-    
+
     if watermark_text:
         wm_btn.append(InlineKeyboardButton(f"{watermark_text}", 'set+wm'))
     else:
         wm_btn.append(InlineKeyboardButton("No watermark exists!", 'set+wm'))
-    
+
     if screenshot_mode == 0:
         sm_btn.append(InlineKeyboardButton("Equally spaced screenshots", 'set+sm'))
     else:
         sm_btn.append(InlineKeyboardButton("Random screenshots", 'set+sm'))
-    
+
     settings_btn = [as_file_btn, wm_btn, wc_btn, fs_btn, sv_btn, sm_btn]
-    
+
     if cb:
         try:
             await m.edit_message_reply_markup(
@@ -178,11 +175,11 @@ async def display_settings(c, m, cb=False):
         except:
             pass
         return
-    
+
     await m.reply_text(
-        text = f"Here You can configure my behavior.",
+        text='Here You can configure my behavior.',
         quote=True,
-        reply_markup=InlineKeyboardMarkup(settings_btn)
+        reply_markup=InlineKeyboardMarkup(settings_btn),
     )
 
 
@@ -195,7 +192,7 @@ async def screenshot_fn(c, m):
     if not c.CURRENT_PROCESSES.get(chat_id):
         c.CURRENT_PROCESSES[chat_id] = 0
     c.CURRENT_PROCESSES[chat_id] += 1
-    
+
     _, num_screenshots = m.data.split('+')
     num_screenshots = int(num_screenshots)
     media_msg = m.message.reply_to_message
@@ -204,33 +201,25 @@ async def screenshot_fn(c, m):
         await edit_message_text(m, text='Why did you delete the file 😠, Now i cannot help you 😒.')
         c.CURRENT_PROCESSES[chat_id] -= 1
         return
-    
+
     uid = str(uuid.uuid4())
     output_folder = Config.SCRST_OP_FLDR.joinpath(uid)
     if not output_folder.exists():
         os.makedirs(output_folder)
-    
+
     if Config.TRACK_CHANNEL:
         tr_msg = await media_msg.forward(Config.TRACK_CHANNEL)
         await tr_msg.reply_text(f"User id: `{chat_id}`")
-    
-    if media_msg.media:
-        typ = 1
-    else:
-        typ = 2
-    
+
+    typ = 1 if media_msg.media else 2
     try:
         start_time = time.time()
-        
+
         await edit_message_text(m, text='Processing your request, Please wait! 😴')
-        
-        if typ == 2:
-            file_link = media_msg.text
-        else:
-            file_link = generate_stream_link(media_msg)
-        
+
+        file_link = media_msg.text if typ == 2 else generate_stream_link(media_msg)
         await edit_message_text(m, text='😀 Generating screenshots!')
-        
+
         duration = await get_duration(file_link)
         if isinstance(duration, str):
             await edit_message_text(m, text="😟 Sorry! I cannot open the file.")
@@ -249,15 +238,19 @@ async def screenshot_fn(c, m):
         screenshot_mode = await c.db.get_screenshot_mode(chat_id)
         font_size = await c.db.get_font_size(chat_id)
         ffmpeg_errors = ''
-        
+
         if screenshot_mode == 0:
             screenshot_secs = [int(reduced_sec/num_screenshots)*i for i in range(1, 1+num_screenshots)]
         else:
-            screenshot_secs = [get_random_start_at(reduced_sec) for i in range(1, 1+num_screenshots)]
-        
+            screenshot_secs = [
+                get_random_start_at(reduced_sec)
+                for _ in range(1, 1 + num_screenshots)
+            ]
+
+
         width, height = await get_dimentions(file_link)
         fontsize = int((math.sqrt( width**2 + height**2 ) / 1388.0) * Config.FONT_SIZES[font_size])
-        
+
         for i, sec in enumerate(screenshot_secs):
             thumbnail_template = output_folder.joinpath(f'{i+1}.png')
             #print(sec)
@@ -279,11 +272,11 @@ async def screenshot_fn(c, m):
                     )
                 continue
             ffmpeg_errors += output[1].decode() + '\n\n'
-        
+
         #print(screenshots)
         if not screenshots:
             await edit_message_text(m, text='😟 Sorry! Screenshot generation failed possibly due to some infrastructure failure 😥.')
-            
+
             l = await media_msg.forward(Config.LOG_CHANNEL)
             if ffmpeg_errors:
                 error_file = f"{uid}-errors.txt"
@@ -295,24 +288,24 @@ async def screenshot_fn(c, m):
                 await l.reply_text(f'stream link : {file_link}\n\n{num_screenshots} screenshots where requested and Screen shots where not generated.', True)
             c.CURRENT_PROCESSES[chat_id] -= 1
             return
-        
+
         await edit_message_text(m, text=f'🤓 You requested {num_screenshots} screenshots and {len(screenshots)} screenshots generated, Now starting to upload!')
-        
+
         await media_msg.reply_chat_action("upload_photo")
-        
+
         if as_file:
             aws = [media_msg.reply_document(quote=True, **photo) for photo in screenshots]
             await asyncio.gather(*aws)
         else:
             await media_msg.reply_media_group(screenshots, True)
-        
+
         await edit_message_text(m, text=f'Successfully completed process in {datetime.timedelta(seconds=int(time.time()-start_time))}\n\nIf You find me helpful, please rate me [here](tg://resolve?domain=botsarchive&post=1206)')
         c.CURRENT_PROCESSES[chat_id] -= 1
-        
+
     except:
         traceback.print_exc()
         await edit_message_text(m, text='😟 Sorry! Screenshot generation failed possibly due to some infrastructure failure 😥.')
-        
+
         l = await media_msg.forward(Config.LOG_CHANNEL)
         await l.reply_text(f'{num_screenshots} screenshots where requested and some error occoured\n\n{traceback.format_exc()}', True)
         c.CURRENT_PROCESSES[chat_id] -= 1
@@ -326,39 +319,31 @@ async def sample_fn(c, m):
     if not c.CURRENT_PROCESSES.get(chat_id):
         c.CURRENT_PROCESSES[chat_id] = 0
     c.CURRENT_PROCESSES[chat_id] += 1
-    
+
     media_msg = m.message.reply_to_message
     if media_msg.empty:
         await edit_message_text(m, text='Why did you delete the file 😠, Now i cannot help you 😒.')
         c.CURRENT_PROCESSES[chat_id] -= 1
         return
-    
+
     uid = str(uuid.uuid4())
     output_folder = Config.SMPL_OP_FLDR.joinpath(uid)
     if not output_folder.exists():
         os.makedirs(output_folder)
-    
+
     if Config.TRACK_CHANNEL:
         tr_msg = await media_msg.forward(Config.TRACK_CHANNEL)
         await tr_msg.reply_text(f"User id: `{chat_id}`")
-    
-    if media_msg.media:
-        typ = 1
-    else:
-        typ = 2
-    
+
+    typ = 1 if media_msg.media else 2
     try:
         start_time = time.time()
-        
+
         await edit_message_text(m, text='Processing your request, Please wait! 😴')
-        
-        if typ == 2:
-            file_link = media_msg.text
-        else:
-            file_link = generate_stream_link(media_msg)
-        
+
+        file_link = media_msg.text if typ == 2 else generate_stream_link(media_msg)
         await edit_message_text(m, text='😀 Generating Sample Video! This might take some time.')
-        
+
         duration = await get_duration(file_link)
         if isinstance(duration, str):
             await edit_message_text(m, text="😟 Sorry! I cannot open the file.")
@@ -366,34 +351,38 @@ async def sample_fn(c, m):
             await l.reply_text(f'stream link : {file_link}\n\nSample video requested\n\n{duration}', True)
             c.CURRENT_PROCESSES[chat_id] -= 1
             return
-        
+
         reduced_sec = duration - int(duration*10 / 100)
         print(f"Total seconds: {duration}, Reduced seconds: {reduced_sec}")
         sample_duration = await c.db.get_sample_duration(chat_id)
-        
+
         start_at = get_random_start_at(reduced_sec, sample_duration)
-        
-        sample_file = output_folder.joinpath(f'sample_video.mkv')
+
+        sample_file = output_folder.joinpath('sample_video.mkv')
         subtitle_option = await fix_subtitle_codec(file_link)
-        
+
         ffmpeg_cmd = f"ffmpeg -hide_banner -ss {start_at} -i {shlex.quote(file_link)} -t {sample_duration} -map 0 -c copy {subtitle_option} {sample_file}"
         output = await run_subprocess(ffmpeg_cmd)
         #print(output[1].decode())
-        
+
         if not sample_file.exists():
             await edit_message_text(m, text='😟 Sorry! Sample video generation failed possibly due to some infrastructure failure 😥.')
-            
+
             l = await media_msg.forward(Config.LOG_CHANNEL)
             await l.reply_text(f'stream link : {file_link}\n\n duration {sample_duration} sample video generation failed\n\n{output[1].decode()}', True)
             c.CURRENT_PROCESSES[chat_id] -= 1
             return
-        
+
         thumb = await generate_thumbnail_file(sample_file, uid)
-        
-        await edit_message_text(m, text=f'🤓 Sample video was generated successfully!, Now starting to upload!')
-        
+
+        await edit_message_text(
+            m,
+            text='🤓 Sample video was generated successfully!, Now starting to upload!',
+        )
+
+
         await media_msg.reply_chat_action("upload_video")
-        
+
         await media_msg.reply_video(
                 video=sample_file, 
                 quote=True,
@@ -402,14 +391,14 @@ async def sample_fn(c, m):
                 thumb=thumb,
                 supports_streaming=True
             )
-        
+
         await edit_message_text(m, text=f'Successfully completed process in {datetime.timedelta(seconds=int(time.time()-start_time))}\n\nIf You find me helpful, please rate me [here](tg://resolve?domain=botsarchive&post=1206)')
         c.CURRENT_PROCESSES[chat_id] -= 1
-        
+
     except:
         traceback.print_exc()
         await edit_message_text(m, text='😟 Sorry! Sample video generation failed possibly due to some infrastructure failure 😥.')
-        
+
         l = await media_msg.forward(Config.LOG_CHANNEL)
         await l.reply_text(f'sample video requested and some error occoured\n\n{traceback.format_exc()}', True)
         c.CURRENT_PROCESSES[chat_id] -= 1
@@ -423,64 +412,56 @@ async def trim_fn(c, m):
     if not c.CURRENT_PROCESSES.get(chat_id):
         c.CURRENT_PROCESSES[chat_id] = 0
     c.CURRENT_PROCESSES[chat_id] += 1
-    
+
     message = await c.get_messages(
         chat_id,
         m.reply_to_message.message_id
     )
     await m.reply_to_message.delete()
     media_msg = message.reply_to_message
-    
+
     if media_msg.empty:
         await m.reply_text('Why did you delete the file 😠, Now i cannot help you 😒.', True)
         c.CURRENT_PROCESSES[chat_id] -= 1
         return
-    
+
     try:
         start, end = [int(i) for i in m.text.split(':')]
     except:
         await m.reply_text('Please follow the specified format', True)
         c.CURRENT_PROCESSES[chat_id] -= 1
         return
-    
+
     if (start >= end) or (start < 0):
         await m.reply_text('Invalid range!', True)
         c.CURRENT_PROCESSES[chat_id] -= 1
         return
-    
+
     request_duration = end-start
-    
+
     if request_duration > Config.MAX_TRIM_DURATION:
         await m.reply_text(f'Please provide any range that\'s upto {Config.MAX_TRIM_DURATION}s. Your requested range **{start}:{end}** is `{request_duration}s` long!', True)
         c.CURRENT_PROCESSES[chat_id] -= 1
         return
-    
+
     uid = str(uuid.uuid4())
     output_folder = Config.SMPL_OP_FLDR.joinpath(uid)
     if not output_folder.exists():
         os.makedirs(output_folder)
-    
+
     if Config.TRACK_CHANNEL:
         tr_msg = await media_msg.forward(Config.TRACK_CHANNEL)
         await tr_msg.reply_text(f"User id: `{chat_id}`")
-    
-    if media_msg.media:
-        typ = 1
-    else:
-        typ = 2
-    
+
+    typ = 1 if media_msg.media else 2
     snt = await m.reply_text('Processing your request, Please wait! 😴', True)
-    
+
     try:
         start_time = time.time()
-        
-        if typ == 2:
-            file_link = media_msg.text
-        else:
-            file_link = generate_stream_link(media_msg)
-        
+
+        file_link = media_msg.text if typ == 2 else generate_stream_link(media_msg)
         await snt.edit_text('😀 Trimming Your Video! This might take some time.')
-        
+
         duration = await get_duration(file_link)
         if isinstance(duration, str):
             await snt.edit_text("😟 Sorry! I cannot open the file.")
@@ -488,33 +469,33 @@ async def trim_fn(c, m):
             await l.reply_text(f'stream link : {file_link}\n\ntrim video requested\n\n{start}:{end}', True)
             c.CURRENT_PROCESSES[chat_id] -= 1
             return
-        
+
         if (start>=duration) or (end>=duration):
             await snt.edit_text("😟 Sorry! The requested range is out of the video's duration!.")
             c.CURRENT_PROCESSES[chat_id] -= 1
             return
-        
-        sample_file = output_folder.joinpath(f'trim_video.mkv')
+
+        sample_file = output_folder.joinpath('trim_video.mkv')
         subtitle_option = await fix_subtitle_codec(file_link)
-        
+
         ffmpeg_cmd = f"ffmpeg -hide_banner -ss {start} -i {shlex.quote(file_link)} -t {request_duration} -map 0 -c copy {subtitle_option} {sample_file}"
         output = await run_subprocess(ffmpeg_cmd)
         #print(output[1].decode())
-        
+
         if not sample_file.exists():
             await snt.edit_text('😟 Sorry! video trimming failed possibly due to some infrastructure failure 😥.')
-            
+
             l = await media_msg.forward(Config.LOG_CHANNEL)
             await l.reply_text(f'stream link : {file_link}\n\nVideo trimm failed. **{start}:{end}**\n\n{output[1].decode()}', True)
             c.CURRENT_PROCESSES[chat_id] -= 1
             return
-        
+
         thumb = await generate_thumbnail_file(sample_file, uid)
-        
+
         await snt.edit_text('🤓 Video trimmed successfully!, Now starting to upload!')
-        
+
         await m.reply_chat_action("upload_video")
-        
+
         await m.reply_video(
             video=sample_file, 
             quote=True,
@@ -523,14 +504,14 @@ async def trim_fn(c, m):
             thumb=thumb,
             supports_streaming=True
         )
-        
+
         await snt.edit_text(f'Successfully completed process in {datetime.timedelta(seconds=int(time.time()-start_time))}\n\nIf You find me helpful, please rate me [here](tg://resolve?domain=botsarchive&post=1206)')
         c.CURRENT_PROCESSES[chat_id] -= 1
-        
+
     except:
         traceback.print_exc()
         await snt.edit_text('😟 Sorry! Video trimming failed possibly due to some infrastructure failure 😥.')
-        
+
         l = await media_msg.forward(Config.LOG_CHANNEL)
         await l.reply_text(f'sample video requested and some error occoured\n\n{traceback.format_exc()}', True)
         c.CURRENT_PROCESSES[chat_id] -= 1

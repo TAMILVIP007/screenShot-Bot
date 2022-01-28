@@ -38,7 +38,7 @@ class Database:
     
     async def is_user_exist(self, id):
         user = await self.col.find_one({'id':int(id)})
-        return True if user else False
+        return bool(user)
     
     
     async def total_users_count(self):
@@ -141,6 +141,5 @@ class Database:
     
     
     async def get_all_banned_users(self):
-        banned_users = self.col.find({'ban_status.is_banned': True})
-        return banned_users
+        return self.col.find({'ban_status.is_banned': True})
     
